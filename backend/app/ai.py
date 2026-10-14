@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Selection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
     statement_ids: list[int] = Field(min_length=1, max_length=5)
     evidence_ids: list[str] = Field(max_length=12)
 
@@ -21,6 +21,10 @@ class ExplanationService:
         self.calls = 0
         self.last_call = 0.0
         self.lock = asyncio.Lock()
+        try:
+            self.limit = max(0, min(int(os.getenv("AI_DAILY_CALL_LIMIT", "20")), 20))
+        except ValueError:
+            self.limit = 0
 
     async def explain(self, result):
         statements = [
@@ -42,10 +46,7 @@ class ExplanationService:
         async with self.lock:
             if self.day != date.today():
                 self.day, self.calls = date.today(), 0
-            if (
-                self.calls >= min(int(os.getenv("AI_DAILY_CALL_LIMIT", "20")), 20)
-                or time.monotonic() - self.last_call < 10
-            ):
+            if self.calls >= self.limit or time.monotonic() - self.last_call < 10:
                 return {
                     **fallback,
                     "reason": "AI unavailable: local usage or rate limit reached",

@@ -1788,3 +1788,12 @@ nav button.active {
     visibility: visible;
   }
 }
+.table-wrap {
+  position: relative;
+}
+.sidebar {
+  overflow-y: auto;
+}
+.sidebar > * {
+  flex-shrink: 0;
+}

@@ -1,0 +1,11 @@
+# Scope and tradeoffs
+
+Implemented: six synthetic innovators, four partner mandates, 30 source records, 24 labeled pairs; working dashboard, deterministic eligibility/scoring, provenance/freshness/contradictions, six-factor readiness, non-mutating scenarios, evaluation and constrained Cloudflare explanations. The PostgreSQL adapter, versioned migration, idempotent seed and optional operator-run embeddings are implemented.
+
+Not implemented: real diligence or regulatory verification, calibrated probability estimates, authentication/multitenancy, document ingestion, persisted human-review edits, historical evaluation run storage, distributed rate limiting, an immutable audit ledger, trained ranking or a production SLA. Regression compares the current output against a checked-in labeled baseline, not historical telemetry. Semantic integration is optional and defaults to unavailable when no embeddings exist. The benchmark does not evaluate free-form LLM quality because the adapter does not expose free-form LLM prose.
+
+Readiness measures supporting evidence, not actual commercial success. Contradiction detection compares distinct claim values within a factor; it is conservative and can flag complementary statements. Actual factor-level claim normalization needs a richer ontology. Missing data contributes zero to the readiness denominator; the factors remain explicitly unknown.
+
+At 10× usage: move database filtering/pagination into SQL, replace the single JSON record table with normalized entities/claims, add tenant-aware authorization, a least-privilege read role, persistent distributed usage counters, model/version metadata validation, cached evaluations, structured telemetry and real reviewer labels. Split frontend modules and generate TypeScript contracts from OpenAPI. Measure memory, latency and limits before changing the $0 constraint; a paid upgrade must be a separate business decision.
+
+The small demo reads all records for aggregate calculations. JSONB stores typed Pydantic-validated entities; this avoids premature schema complexity but is not an analytical warehouse. Database connections are short-lived; use Supabase's pooler for Render. Free-tier cold starts and quota suspension remain visible to the user.

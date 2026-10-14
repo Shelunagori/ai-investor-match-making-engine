@@ -93,3 +93,40 @@ def test_ai_grounding_and_budget(monkeypatch):
 
     monkeypatch.setattr(httpx.AsyncClient, "post", invalid)
     assert asyncio.run(ExplanationService().explain(result))["mode"] == "deterministic"
+
+
+def test_readiness_failure_is_explicit(monkeypatch):
+    from app.main import repo
+
+    def fail():
+        raise RuntimeError("secret database URI must never be returned")
+
+    monkeypatch.setattr(repo, "all", fail)
+    assert client.get("/ready").status_code == 503
+    result = client.get("/api/dashboard")
+    assert result.status_code == 503
+    assert "secret database URI" not in result.text
+
+
+def test_cors_allowlist():
+    assert (
+        client.get("/health", headers={"Origin": "http://localhost:5173"}).headers[
+            "access-control-allow-origin"
+        ]
+        == "http://localhost:5173"
+    )
+    assert (
+        "access-control-allow-origin"
+        not in client.get(
+            "/health", headers={"Origin": "https://unknown.example"}
+        ).headers
+    )
+
+
+def test_invalid_budget_disables_ai(monkeypatch):
+    monkeypatch.setenv("AI_DAILY_CALL_LIMIT", "invalid")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "test")
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "test")
+    os, ps = dataset()
+    result = match(os[0], ps[0], date(2026, 10, 14))
+    assert "limit" in asyncio.run(ExplanationService().explain(result))["reason"]

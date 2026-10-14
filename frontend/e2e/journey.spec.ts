@@ -100,7 +100,7 @@ test("each screen fits the viewport and has no serious accessibility issues", as
     if (name !== "Overview") await navigate(page, name);
     await expect(page.getByRole("status")).toHaveCount(0);
     const overflow = await page.evaluate(() => ({
-      width: window.innerWidth,
+      width: document.documentElement.clientWidth,
       scroll: document.documentElement.scrollWidth,
     }));
     expect(overflow.scroll, `${name} overflow`).toBeLessThanOrEqual(
@@ -128,4 +128,39 @@ test("each screen fits the viewport and has no serious accessibility issues", as
       fullPage: true,
     });
   }
+});
+
+test("guided journey reaches all five steps and filtering selects the matching innovator", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Opportunity pipeline" }),
+  ).toBeVisible();
+  if (
+    await page.getByRole("button", { name: "Toggle navigation" }).isVisible()
+  ) {
+    await page.getByRole("button", { name: "Toggle navigation" }).click();
+    await page.locator(".profile").click();
+  } else
+    await page
+      .getByRole("button", { name: "Guided tour", exact: true })
+      .click();
+  await expect(page.getByRole("region", { name: "Guided demo" })).toBeVisible();
+  for (let i = 0; i < 4; i++)
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Measure behavior before trusting it" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Finish", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Guided demo" })).toHaveCount(
+    0,
+  );
+  await navigate(page, "Opportunities");
+  await page
+    .getByRole("combobox", { name: "Filter by sector" })
+    .selectOption("Geothermal");
+  await expect(
+    page.getByRole("heading", { name: "TerraLoop", exact: true }),
+  ).toBeVisible();
 });

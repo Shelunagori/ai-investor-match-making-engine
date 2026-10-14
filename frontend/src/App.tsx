@@ -151,6 +151,7 @@ export default function App() {
     },
   ];
   function step(n: number) {
+    setMobile(false);
     setTour(n);
     if (n < journey.length) {
       setPage(journey[n].page);
@@ -179,7 +180,7 @@ export default function App() {
             }}
           >
             <span className="brand-mark">Λ</span>AETHER
-            <span className="brand-dot">®</span>
+            <span className="brand-dot">OS</span>
           </a>
           <div className="workspace">
             <span className="workspace-icon">A</span>
@@ -397,7 +398,12 @@ export default function App() {
                             View all <ArrowRight size={15} />
                           </button>
                         </div>
-                        <div className="table-wrap" tabIndex={0} role="region" aria-label="Scrollable data table">
+                        <div
+                          className="table-wrap"
+                          tabIndex={0}
+                          role="region"
+                          aria-label="Scrollable data table"
+                        >
                           <table>
                             <thead>
                               <tr>
@@ -1244,7 +1250,12 @@ function EvaluationStudio() {
                 current statuses with the fixed labeled baseline.
               </p>
             </details>
-            <div className="table-wrap" tabIndex={0} role="region" aria-label="Scrollable data table">
+            <div
+              className="table-wrap"
+              tabIndex={0}
+              role="region"
+              aria-label="Scrollable data table"
+            >
               <table>
                 <thead>
                   <tr>
