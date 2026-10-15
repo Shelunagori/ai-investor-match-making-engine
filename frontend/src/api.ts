@@ -83,7 +83,7 @@ export type Dashboard = {
   };
 };
 export type Detail = {
-  opportunity: Opportunity;
+  opportunity: Omit<Opportunity, "trust" | "readiness" | "eligible_count">;
   matches: Match[];
   trust: Trust;
   readiness: Readiness;

@@ -15,13 +15,19 @@ export default defineConfig({
       command:
         "../.venv/bin/uvicorn app.main:app --app-dir ../backend --host 127.0.0.1 --port 8000",
       url: "http://127.0.0.1:8000/health",
-      reuseExistingServer: !process.env.CI,
-      env: { AS_OF_DATE: "2026-10-14" },
+      reuseExistingServer: false,
+      env: {
+        AS_OF_DATE: "2026-10-14",
+        DATABASE_URL: "",
+        CLOUDFLARE_ACCOUNT_ID: "",
+        CLOUDFLARE_API_TOKEN: "",
+      },
     },
     {
       command: "npm run dev",
+      env: { VITE_API_URL: "" },
       url: "http://127.0.0.1:5173",
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
     },
   ],
 });
