@@ -14,9 +14,10 @@ flowchart LR
     API --> Repository[Repository / psycopg]
     Repository -->|DATABASE_URL configured| DB[(Supabase PostgreSQL / aether.records)]
     Repository -->|DATABASE_URL absent| Fixture[Canonical Python fixture]
-    API --> Adapter[Bounded explanation adapter]
+    API --> Adapter[Validated explanation selection]
     Adapter -->|Optional inference| CF[Cloudflare Workers AI REST API]
     Operator[Operator scripts] -->|Migration and seed / optional embeddings| DB
+    Operator -->|Optional embedding inference| CF
     DB --- Vector[pgvector / nullable 768-dimensional vectors]
 ```
 
@@ -30,7 +31,7 @@ flowchart LR
 
 ## Data path and persistence
 
-Each repository read opens a synchronous psycopg connection with a five-second connection timeout, reads all opportunity and partner payloads, parses optional vector text, and validates domain models. There is no connection pool, application cache or tenant filter. Even the paginated opportunities endpoint loads the full dataset before filtering and slicing in Python.
+Each repository read opens a synchronous psycopg connection with a five-second connection timeout, reads all opportunity and partner payloads, parses optional vector text, and validates domain models. There is no connection pool, application cache or tenant filter. The asynchronous explanation route performs this synchronous read and matching directly on the event loop before awaiting inference, so a slow query can block the single worker. The connection timeout does not bound query execution; runtime reads set no statement timeout. Even the paginated opportunities endpoint loads the full dataset before filtering and slicing in Python.
 
 The [initial migration](../supabase/migrations/20261014161050_aether_initial.sql) stores records in `aether.records`: primary-key ID, constrained kind, JSONB object payload, nullable vector, embedding model and update timestamp. Evidence is nested inside opportunity payloads, not a separate evidence table. The migration discovers the installed vector extension namespace; it uses an existing `public` or `extensions` installation without relocation, or installs it in `extensions` if absent. The vector column has 768 dimensions. There is a kind/ID index, but no approximate vector-search index.
 
@@ -96,12 +97,12 @@ sequenceDiagram
     end
     AI-->>API: Selected deterministic text or deterministic fallback
     API-->>UI: Statements, citations, mode and reason
-    UI->>UI: Validate display against current match; announce completion
+    UI->>UI: Validate display against current match and announce completion
 ```
 
 The default inference model is `@cf/meta/llama-3.1-8b-instruct-fp8`. The request sends preapproved statement strings and evidence IDs, not evidence source text. The provider may select IDs, but cannot supply final claims, scores or eligibility. Mandatory statement 0 carries eligibility and the human-diligence warning. All displayed statement text is rendered on the server from the allowed list; the frontend also checks against the current match.
 
-The deterministic parser accepts a pure object, a single code-fenced object, or one object surrounded by prose. It rejects ambiguous objects, malformed JSON, duplicate keys, invalid types/fields, duplicate IDs, unknown evidence IDs and missing/out-of-range statements. The 8,192-byte limit applies to the model's response string, not the complete downloaded HTTP envelope. There is no `eval`, greedy regex extraction or repair.
+The parser and subsequent grounding checks together validate the selection. The parser accepts a pure object, a single code-fenced object, or one object surrounded by prose. The parser rejects ambiguous objects, malformed JSON, duplicate keys, invalid types/fields and duplicate IDs. The service then rejects unknown evidence IDs and missing/out-of-range statements. The 8,192-byte limit applies to the model's response string, not the complete downloaded HTTP envelope. There is no `eval`, greedy regex extraction or repair.
 
 Missing configuration, exhausted budget, throttling, provider/parse/validation failures produce a successful deterministic explanation response with mode/reason. Repository failure before matching remains a 503. The adapter uses no retries, a 180-output-token cap and a 12-second HTTP-operation timeout, not a guaranteed total wall-clock deadline. Attempts are limited to one per ten seconds and a configurable maximum of twenty per process per day. Restarts reset counters; multiple processes would multiply them. The frontend has a persistent polite loading/completion status and an error announcement without automatic focus movement.
 
@@ -118,11 +119,13 @@ Missing configuration, exhausted budget, throttling, provider/parse/validation f
 | `POST /api/opportunities/{id}/explain/{partner}` | Grounded optional AI selection with fallback                                          |
 | `GET /api/evaluation`                            | Fixed synthetic benchmark, K from 1 to 4                                              |
 
+The fixed evaluation indexes labels by opportunity ID; an additional valid opportunity with an unknown ID can raise an unhandled error and return 500 rather than a partial benchmark. An invalid `AS_OF_DATE` can similarly fail date-dependent routes while `/ready` still succeeds.
+
 Pydantic validates request/domain types; scenario fields forbid extras. Missing IDs return 404, invalid requests 422, and repository failures a generic 503. The browser fetch helper defaults to a 25-second timeout, exposes errors and supports dashboard retry; the React error boundary provides recovery UI. Backend middleware attaches a request ID and logs method, status and duration. This is basic request logging, not tracing, durable audit or complete exception monitoring.
 
 ## Security boundaries and limits
 
-There is no application authentication, authorization or tenant ownership model. The API publicly serves synthetic data; CORS restricts permitted browser origins, not direct HTTP clients. Public OpenAPI documentation is enabled. No public endpoint mutates persistent records, but inference requests consume resources.
+There is no application authentication, authorization or tenant ownership model. The API publicly serves all records loaded from the configured table, with no canonical-ID allowlist or synthetic-data filter. Additional valid records are returned too; invalid payloads can make the entire repository read fail. The dashboard hard-codes `synthetic: true`, and the evidence UI labels every record synthetic, regardless of its actual origin. Preserving unrelated rows during initialization therefore does not isolate them from public reads. Only demonstration data should be stored in this table. CORS restricts permitted browser origins, not direct HTTP clients. Public OpenAPI documentation is enabled. No public endpoint mutates persistent records, but inference requests consume resources.
 
 The migration revokes PUBLIC schema/table privileges and enables RLS without public policies. It does not force RLS: owners and bypass-capable roles can bypass it. These controls do not prove runtime least privilege, deployed Supabase API exposure settings or tenant isolation. Database credentials are server-side, but the current API deliberately returns the dataset publicly. Real confidential customer data requires new authorization boundaries before ingestion.
 

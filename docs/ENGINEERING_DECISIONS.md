@@ -33,23 +33,23 @@ For real customers, retain source identity, immutable versions, collection times
 
 ## Persistence and reproducibility
 
-The canonical fixture is Python/Pydantic data. The database initializer inserts only missing canonical IDs, validates existing payloads and rolls back mismatches. This deliberately avoids overwriting customer-adjacent data or embedding fields. Extra unrelated IDs remain untouched. A changed fixture is not an implicit data-update migration: operators must explicitly design that transition.
+The canonical fixture is Python/Pydantic data. The database initializer inserts only missing canonical IDs, validates existing payloads and rolls back mismatches. This deliberately avoids overwriting customer-adjacent data or embedding fields. Extra unrelated IDs remain untouched by initialization, but are not isolated from the public API: repository reads include them and the UI still labels them synthetic. A changed fixture is not an implicit data-update migration: operators must explicitly design that transition.
 
 Vector extension discovery accommodates existing namespace choices without moving or dropping extensions. Migration filenames provide an execution ledger, but not checksums or drift detection. Real release operations need migration review, schema drift detection, tested restores and controlled data-version transitions.
 
-`AS_OF_DATE` enables reproducible freshness tests; production otherwise ages records against the server date. The fixed benchmark uses hand-authored labels for this fixture, so its precision/recall is a regression signal, not an estimate of performance on real companies. Arbitrary new IDs are outside the evaluation's current assumptions.
+`AS_OF_DATE` enables reproducible freshness tests; production otherwise ages records against the server date. The fixed benchmark uses hand-authored labels for this fixture, so its precision/recall is a regression signal, not an estimate of performance on real companies. An additional opportunity ID absent from the fixed label map causes evaluation to fail with an unhandled error, rather than extending the benchmark.
 
 ## Failure and degradation decisions
 
-| Failure                                                   | Implemented behavior                                  | Remaining limitation                                                                          |
-| --------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| No database URL                                           | Canonical fixture repository                          | Misconfiguration can resemble a healthy demonstration; readiness exposes the source           |
-| Configured database unavailable, empty or invalid         | Generic 503; no fixture substitution                  | No automatic recovery/failover beyond later requests                                          |
-| Missing or unusable embeddings                            | Structured-only weights                               | Missing vectors change score composition; mixed model versions are not rejected by the reader |
-| AI absent, throttled, exhausted, malformed or unavailable | Deterministic explanation with mode/reason            | Fallback is expected, not proof of provider health                                            |
-| Client timeout/network error                              | Visible error/recovery state                          | No offline cache or automatic request retry strategy                                          |
-| Opportunity/partner switched during a request             | Component identity and cleanup suppress stale display | Loaded evidence remains a snapshot until fetched again                                        |
-| Unknown evidence reference                                | Unavailable evidence state                            | Does not reconstruct a missing source                                                         |
+| Failure                                                   | Implemented behavior                                  | Remaining limitation                                                                                                         |
+| --------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| No database URL                                           | Canonical fixture repository                          | Misconfiguration can resemble a healthy demonstration; readiness exposes the source                                          |
+| Configured database unavailable, empty or invalid         | Generic 503; no fixture substitution                  | No automatic recovery/failover beyond later requests                                                                         |
+| Vectors absent or rejected by cosine checks               | Structured-only weights                               | Only successfully loaded records reach cosine checks; JSON/model loading failures return 503. Model versions are not checked |
+| AI absent, throttled, exhausted, malformed or unavailable | Deterministic explanation with mode/reason            | Fallback is expected, not proof of provider health                                                                           |
+| Client timeout/network error                              | Visible error/recovery state                          | No offline cache or automatic request retry strategy                                                                         |
+| Opportunity/partner switched during a request             | Component identity and cleanup suppress stale display | Loaded evidence remains a snapshot until fetched again                                                                       |
+| Unknown evidence reference                                | Unavailable evidence state                            | Does not reconstruct a missing source                                                                                        |
 
 AI attempts are budgeted per process, not per account or user; restart resets and multiple workers weaken any aggregate cap. The HTTP timeout limits operations rather than the entire workflow. Public endpoint abuse protection and provider spending controls require separate measures. Provider billing guarantees cannot be inferred from application counters.
 
@@ -58,6 +58,8 @@ AI attempts are budgeted per process, not per account or user; restart resets an
 Before confidential data, introduce identity, tenant ownership, authorization on every read and operation, least-privilege database roles and tested tenant isolation. RLS without tenant policies is not a multi-tenant design. Review public docs/endpoints, browser policy, secret rotation and data retention requirements.
 
 Before operational reliance, add structured error monitoring, dependency-aware alerts, latency/error objectives, durable audit events, backup and restore drills, incident ownership and a rollback/recovery runbook. The configured `/health` probe does not establish repository readiness. Provider configuration and backup availability must be checked directly.
+
+The async explanation route currently executes synchronous repository reads and matching on the event loop. A slow database query can stall the sole worker; runtime reads have no statement timeout. A client timeout does not guarantee cancellation of backend work.
 
 Before scale, measure representative workloads. Replace full-table reads with bounded queries; introduce connection pooling and concurrency controls; move embedding generation into an observable, idempotent queue if ingestion warrants it. Version embedding models and enforce compatibility. A shared quota store and API rate limiting would be required across workers. Indexed vector retrieval should be evaluated against deterministic eligibility and recall, not introduced solely because pgvector is installed.
 
