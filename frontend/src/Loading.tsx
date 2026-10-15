@@ -1,15 +1,21 @@
-type LoadingProps = { label: string; dashboard?: boolean; compact?: boolean };
+type LoadingProps = {
+  label: string;
+  dashboard?: boolean;
+  compact?: boolean;
+  announce?: boolean;
+};
 
 export function Loading({
   label,
   dashboard = false,
   compact = false,
+  announce = true,
 }: LoadingProps) {
   return (
     <div
       className={`loading-shell ${dashboard ? "dashboard-loading" : compact ? "compact-loading" : "detail-loading"}`}
     >
-      <p role="status">{label}</p>
+      <p role={announce ? "status" : undefined}>{label}</p>
       {dashboard && <small>A free backend may take a moment to wake up.</small>}
       <div className="skeleton-layout" aria-hidden="true">
         <div className="skeleton skeleton-title" />

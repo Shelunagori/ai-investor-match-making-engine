@@ -2,6 +2,14 @@ import { useEffect, useState } from "react";
 import { formatDate } from "./date";
 import { Loading } from "./Loading";
 import {
+  Badge,
+  EvidenceRecord,
+  EvidenceReferences,
+  ExplanationPanel,
+  RuleCheck,
+} from "./Trust";
+export { Badge } from "./Trust";
+import {
   ArrowUpRight,
   ArrowRight,
   Layers3,
@@ -13,9 +21,7 @@ import {
   ChevronRight,
   Zap,
   Activity,
-  Check,
   X,
-  CircleHelp,
   RefreshCw,
   Play,
   Menu,
@@ -62,13 +68,6 @@ const sectorIcons: Record<string, string> = {
   "Grid modernization": "⌁",
   "Carbon management": "C",
 };
-export function Badge({ status }: { status: string }) {
-  return (
-    <span className={`badge ${status.toLowerCase().replaceAll(" ", "-")}`}>
-      {status}
-    </span>
-  );
-}
 function Meter({ value }: { value: number }) {
   return (
     <div
@@ -822,6 +821,15 @@ function OpportunityDetail({
           Evidence completeness <strong>{detail.trust.coverage}%</strong>
         </span>
         <span>
+          Fresh source records <strong>{detail.trust.freshness}%</strong>
+        </span>
+        <span>
+          Conflict flags{" "}
+          <strong>
+            {detail.trust.records.filter((e) => e.contradiction).length} records
+          </strong>
+        </span>
+        <span>
           Human review{" "}
           <strong>{detail.trust.review_count} records need review</strong>
         </span>
@@ -832,7 +840,12 @@ function OpportunityDetail({
       </div>
       <div className="match-grid result-enter">
         {detail.matches.map((m) => (
-          <MatchCard key={m.partner.id} match={m} oid={id} />
+          <MatchCard
+            key={m.partner.id}
+            match={m}
+            oid={id}
+            records={detail.trust.records}
+          />
         ))}
       </div>
       <section className="panel readiness">
@@ -851,7 +864,15 @@ function OpportunityDetail({
     </>
   );
 }
-function MatchCard({ match: m, oid }: { match: Match; oid: string }) {
+export function MatchCard({
+  match: m,
+  oid,
+  records,
+}: {
+  match: Match;
+  oid: string;
+  records: Detail["trust"]["records"];
+}) {
   const [explanation, setExplanation] = useState<Explanation | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -889,19 +910,14 @@ function MatchCard({ match: m, oid }: { match: Match; oid: string }) {
       <small className="muted">{m.partner.kind}</small>
       <h3>{m.partner.name}</h3>
       <p>{m.partner.thesis}</p>
+      <p className="rule-policy">
+        Any failed rule means rejected. Unknown rules without failures require
+        review. Integration is evaluated only for industrial buyers; evidence
+        quality is assessed separately.
+      </p>
       <div className="checks">
         {m.checks.map((c) => (
-          <div key={c.rule}>
-            {c.result === "pass" ? (
-              <Check size={14} />
-            ) : c.result === "fail" ? (
-              <X size={14} />
-            ) : (
-              <CircleHelp size={14} />
-            )}
-            <span>{c.rule}</span>
-            <b className={c.result}>{c.result}</b>
-          </div>
+          <RuleCheck key={c.rule} {...c} />
         ))}
       </div>
       <details>
@@ -920,7 +936,7 @@ function MatchCard({ match: m, oid }: { match: Match; oid: string }) {
           </div>
         ))}
         <p className="muted">Semantic relevance: {m.semantic}</p>
-        <small>Evidence: {m.evidence_ids.join(", ") || "None"}</small>
+        <EvidenceReferences ids={m.evidence_ids} records={records} />
       </details>
       <button
         className="text-button explain-button"
@@ -930,30 +946,43 @@ function MatchCard({ match: m, oid }: { match: Match; oid: string }) {
         {busy ? "Preparing explanation…" : "Explain this decision"}{" "}
         <ArrowRight size={14} />
       </button>
+      <p
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {busy
+          ? `Preparing explanation for ${m.partner.name}.`
+          : error
+            ? ""
+            : explanation
+              ? `Explanation ready. Navigate to the Explanation for ${m.partner.name} region to review the decision and supporting evidence.`
+              : ""}
+      </p>
       {error && <ErrorBox message={error} />}{" "}
-      {busy && <Loading compact label="Preparing grounded explanation…" />}
-      {explanation && !busy && (
-        <div className="explanation result-enter" aria-live="polite">
-          <Badge
-            status={
-              explanation.mode === "cloudflare"
-                ? "Cloudflare AI selection"
-                : "Deterministic fallback"
-            }
-          />
-          <small className="explanation-policy">
-            Preapproved statements only · No AI-generated scores or eligibility
-          </small>
-          <p>{explanation.reason}</p>
-          <ul>
-            {explanation.statements.map((s) => (
-              <li key={s}>{s}</li>
-            ))}
-          </ul>
-          <small>
-            Citations:{" "}
-            {explanation.evidence_ids.join(", ") || "No supporting evidence"}
-          </small>
+      {(busy || explanation) && (
+        <div
+          className="explanation-slot"
+          aria-busy={busy}
+          tabIndex={0}
+          role="region"
+          aria-label={`Explanation for ${m.partner.name}`}
+        >
+          {busy && (
+            <Loading
+              compact
+              announce={false}
+              label="Preparing grounded explanation…"
+            />
+          )}
+          {explanation && !busy && (
+            <ExplanationPanel
+              explanation={explanation}
+              match={m}
+              records={records}
+            />
+          )}
         </div>
       )}
     </article>
@@ -1006,55 +1035,22 @@ function EvidenceView({ id }: { id: string }) {
         />{" "}
         Show only records needing review
       </label>
+      {t.records.some((e) => e.contradiction) && (
+        <section className="conflict-notice">
+          <h2>Compare flagged evidence</h2>
+          <p>
+            Inspect related records together. A conflict is not automatically
+            resolved by AI.
+          </p>
+          <EvidenceReferences
+            ids={t.records.filter((e) => e.contradiction).map((e) => e.id)}
+            records={t.records}
+          />
+        </section>
+      )}
       <div className="evidence-grid result-enter">
         {rows.map((e) => (
-          <article className="panel evidence-record" key={e.id}>
-            <div className="section-heading">
-              <span className="eyebrow">
-                {e.id} · {e.factor}
-              </span>
-              <Badge
-                status={
-                  e.contradiction
-                    ? "Conflicting evidence"
-                    : e.status === "unverified"
-                      ? "Unverified"
-                      : e.status
-                }
-              />
-            </div>
-            <div className="evidence-flags">
-              {e.contradiction && e.status !== "unverified" && (
-                <Badge status={e.status} />
-              )}
-              {!e.verified &&
-                (e.contradiction || e.status !== "unverified") && (
-                  <Badge status="Unverified" />
-                )}
-              {!e.fresh && <Badge status="Stale" />}
-              {e.human_review === "pending" && (
-                <Badge status="Human review pending" />
-              )}
-            </div>
-            <h3>{e.value}</h3>
-            <p>{e.source}</p>
-            <dl>
-              <dt>Source type</dt>
-              <dd>{e.source_type}</dd>
-              <dt>Observed</dt>
-              <dd>{formatDate(e.observed)}</dd>
-              <dt>Last verified</dt>
-              <dd>{formatDate(e.verified)}</dd>
-              <dt>Freshness</dt>
-              <dd>
-                {e.fresh ? "Fresh" : "Stale"} · {e.age_days} days
-              </dd>
-              <dt>Human review</dt>
-              <dd>{e.human_review}</dd>
-              <dt>Confidence</dt>
-              <dd>{e.confidence}</dd>
-            </dl>
-          </article>
+          <EvidenceRecord key={e.id} record={e} />
         ))}
       </div>
       {!rows.length && <p className="empty">No source records in this view.</p>}
