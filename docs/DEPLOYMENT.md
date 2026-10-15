@@ -34,7 +34,7 @@ PYTHONPATH=backend .venv/bin/python scripts/database.py
 PYTHONPATH=backend .venv/bin/python scripts/verify_database.py
 ```
 
-The script applies versioned SQL transactionally with a migration history table, creates private schema aether and pgvector, enables RLS and upserts ten deterministic records. Repeat execution is safe for these fixture records. It replaces fixture payloads, so do not use it for real edited records. Existing unrelated schemas are untouched.
+The initializer applies missing versioned SQL, seeds and verifies in one transaction. It detects the installed pgvector schema (`public` or `extensions`) without moving or replacing the extension; if absent, it installs into `extensions`. It inserts missing canonical records only: six opportunities and four partners, including all 30 evidence records. Existing identical records, timestamps and embeddings remain unchanged. If a canonical ID contains different data, the whole transaction aborts without overwriting it. Unrelated IDs and tables are preserved, so a database with other records can legitimately contain more than ten total rows. See [database initialization safety](DATABASE_INITIALIZATION.md) for the manual-migration recovery path and local regression tests.
 4. Start the backend with DATABASE_URL and confirm /ready says postgres and /api/dashboard returns six innovators. No fallback to fixtures occurs after a configured database fails; the API returns 503.
 5. A privileged database owner is needed for migration. Before any real data, provision a separate read-only runtime role with schema usage, SELECT grants and a narrowly scoped RLS policy. Do not add aether to exposed Data API schemas.
 
