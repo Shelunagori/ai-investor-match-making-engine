@@ -97,7 +97,11 @@ function ErrorBox({ message, retry }: { message: string; retry?: () => void }) {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>("Overview"),
+  const [page, setPage] = useState<Page>(() =>
+      new URLSearchParams(window.location.search).get("view") === "evidence"
+        ? "Evidence & trust"
+        : "Overview",
+    ),
     [data, setData] = useState<Dashboard | null>(null),
     [error, setError] = useState(""),
     [reload, setReload] = useState(0),
@@ -207,6 +211,9 @@ export default function App() {
               </button>
             ))}
           </nav>
+          <a className="case-study-link" href="/review">
+            Engineering case study <ArrowUpRight size={14} aria-hidden="true" />
+          </a>
           <div className="sidebar-note">
             <span className="live-dot" /> DETERMINISTIC CORE
             <p>

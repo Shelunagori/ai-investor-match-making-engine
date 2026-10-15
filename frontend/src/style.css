@@ -2319,3 +2319,12 @@ nav button,
     translate: none;
   }
 }
+.case-study-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #c1d5ce;
+  margin: 24px 10px 0;
+  text-decoration: none;
+}

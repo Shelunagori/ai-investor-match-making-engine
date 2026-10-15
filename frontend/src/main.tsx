@@ -1,7 +1,11 @@
-import React, { Component, type ReactNode } from "react";
+import React, { Component, lazy, Suspense, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
 import "./style.css";
+const Screen = lazy(() =>
+  window.location.pathname.replace(/\/$/, "") === "/review"
+    ? import("./Review")
+    : import("./App"),
+);
 class Boundary extends Component<{ children: ReactNode }, { error: boolean }> {
   state = { error: false };
   static getDerivedStateFromError() {
@@ -22,7 +26,9 @@ class Boundary extends Component<{ children: ReactNode }, { error: boolean }> {
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <Boundary>
-      <App />
+      <Suspense fallback={<p role="status">Loading AETHER…</p>}>
+        <Screen />
+      </Suspense>
     </Boundary>
   </React.StrictMode>,
 );
