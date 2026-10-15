@@ -864,7 +864,7 @@ function OpportunityDetail({
     </>
   );
 }
-function MatchCard({
+export function MatchCard({
   match: m,
   oid,
   records,
@@ -946,6 +946,20 @@ function MatchCard({
         {busy ? "Preparing explanation…" : "Explain this decision"}{" "}
         <ArrowRight size={14} />
       </button>
+      <p
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {busy
+          ? `Preparing explanation for ${m.partner.name}.`
+          : error
+            ? ""
+            : explanation
+              ? `Explanation ready. Navigate to the Explanation for ${m.partner.name} region to review the decision and supporting evidence.`
+              : ""}
+      </p>
       {error && <ErrorBox message={error} />}{" "}
       {(busy || explanation) && (
         <div
@@ -955,7 +969,13 @@ function MatchCard({
           role="region"
           aria-label={`Explanation for ${m.partner.name}`}
         >
-          {busy && <Loading compact label="Preparing grounded explanation…" />}
+          {busy && (
+            <Loading
+              compact
+              announce={false}
+              label="Preparing grounded explanation…"
+            />
+          )}
           {explanation && !busy && (
             <ExplanationPanel
               explanation={explanation}

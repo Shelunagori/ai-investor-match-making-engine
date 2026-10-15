@@ -99,7 +99,7 @@ test("each screen fits the viewport and has no serious accessibility issues", as
     "Evaluation studio",
   ]) {
     if (name !== "Overview") await navigate(page, name);
-    await expect(page.getByRole("status")).toHaveCount(0);
+    await expect(page.locator(".loading-shell")).toHaveCount(0);
     const overflow = await page.evaluate(() => ({
       width: document.documentElement.clientWidth,
       scroll: document.documentElement.scrollWidth,
@@ -484,4 +484,139 @@ test("missing citation is explicit and explanation cannot override a decision", 
       .getByRole("dialog")
       .getByRole("article", { name: "Evidence carbon-e0" }),
   ).toBeVisible();
+});
+
+for (const viewport of [
+  { width: 640, height: 512 },
+  { width: 320, height: 256 },
+]) {
+  test(`zoomed evidence dialog remains fully reachable at ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await page
+      .getByRole("button", { name: "Explore the opportunity pipeline" })
+      .click();
+    await page
+      .getByRole("button", { name: "Explain this decision" })
+      .first()
+      .click();
+    const citation = page
+      .locator(".explanation")
+      .getByRole("button", { name: "volt-e0 technology", exact: true });
+    await citation.click();
+    const dialog = page.getByRole("dialog");
+    const close = dialog.getByRole("button", {
+      name: "Close evidence reference",
+    });
+    await expect(close).toBeInViewport();
+    await expect(dialog).toHaveCSS("overflow-y", "auto");
+    await expect(dialog.locator(".dialog-records")).toHaveCSS(
+      "overflow-y",
+      "visible",
+    );
+    expect(
+      await dialog.locator(".dialog-records").evaluate((el) => el.clientHeight),
+    ).toBeGreaterThan(100);
+    await page.keyboard.press("Tab");
+    await expect(
+      dialog.getByRole("region", { name: "Evidence record details" }),
+    ).toBeFocused();
+    await page.keyboard.press("End");
+    const lastRecord = dialog.getByRole("article", {
+      name: "Evidence volt-conflict",
+      exact: true,
+    });
+    await expect(lastRecord.locator("dd").last()).toBeInViewport();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+    await page.keyboard.press("Tab");
+    await expect(close).toBeFocused();
+    await expect(close).toBeInViewport();
+    const { default: AxeBuilder } = await import("@axe-core/playwright");
+    const result = await new AxeBuilder({ page }).analyze();
+    expect(
+      result.violations.filter((v) =>
+        ["serious", "critical"].includes(v.impact ?? ""),
+      ),
+    ).toEqual([]);
+    await close.click();
+    await expect(dialog).not.toBeVisible();
+    await expect(citation).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(citation).toBeFocused();
+  });
+}
+
+test("explanation status persists through loading, completion and failure", async ({
+  page,
+}) => {
+  let release!: () => void;
+  let fail = false;
+  let requests = 0;
+  await page.route("**/api/opportunities/*/explain/*", async (route) => {
+    requests++;
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    if (fail) await route.fulfill({ status: 503, body: "unavailable" });
+    else
+      await route.fulfill({
+        json: {
+          mode: "cloudflare",
+          reason: "AI-selected, deterministically rendered statements",
+          status: "eligible",
+          statements: ["Eligibility: eligible. Human diligence is required."],
+          evidence_ids: ["volt-e0"],
+        },
+      });
+  });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Explore the opportunity pipeline" })
+    .click();
+  const card = page.locator(".match-card").first();
+  const status = card.getByRole("status");
+  await expect(status).toHaveText("");
+  await expect(status).toHaveAttribute("aria-live", "polite");
+  await status.evaluate((el) => {
+    el.setAttribute("data-persistent-test", "original");
+  });
+  await card.getByRole("button", { name: "Explain this decision" }).click();
+  await expect(status).toContainText("Preparing explanation");
+  await expect(card.getByRole("status")).toHaveCount(1);
+  await expect.poll(() => typeof release).toBe("function");
+  release();
+  await expect(status).toContainText(
+    "Explanation ready. Navigate to the Explanation for",
+  );
+  await expect(status).toHaveAttribute("data-persistent-test", "original");
+  await expect(
+    card.getByRole("region", { name: /Explanation for/ }),
+  ).not.toBeFocused();
+  await expect(card.locator("dialog[open]")).toHaveCount(0);
+  fail = true;
+  await card.getByRole("button", { name: "Explain this decision" }).click();
+  await expect(status).toContainText("Preparing explanation");
+  await expect.poll(() => requests).toBe(2);
+  release();
+  await expect(card.getByRole("alert")).toContainText(
+    "Data service unavailable",
+  );
+  await expect(status).toHaveText("");
+  await expect(status).toHaveAttribute("data-persistent-test", "original");
+  await expect(card.getByRole("alert")).toHaveCount(1);
+  const { default: AxeBuilder } = await import("@axe-core/playwright");
+  const result = await new AxeBuilder({ page }).analyze();
+  expect(
+    result.violations.filter((v) =>
+      ["serious", "critical"].includes(v.impact ?? ""),
+    ),
+  ).toEqual([]);
 });

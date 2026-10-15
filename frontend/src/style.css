@@ -2189,3 +2189,13 @@ nav button {
     scroll-padding-top: 80px;
   }
 }
+/* Short/zoomed viewports need one scroll surface for the entire dialog. */
+@media (max-height: 600px) {
+  .evidence-dialog[open] {
+    display: block;
+    overflow-y: auto;
+  }
+  .dialog-records {
+    overflow: visible;
+  }
+}

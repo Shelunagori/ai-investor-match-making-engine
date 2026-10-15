@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   EvidenceRecord,
   EvidenceReferences,
@@ -7,6 +7,7 @@ import {
   RuleCheck,
   ruleMeaning,
 } from "./Trust";
+import { MatchCard } from "./App";
 import type { Evidence, Match } from "./api";
 
 const evidence: Evidence = {
@@ -156,4 +157,83 @@ describe("grounded explanation", () => {
       expect(screen.getByText("unknown", { exact: true })).toBeVisible();
     },
   );
+});
+
+describe("explanation announcements", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it.each(["cloudflare", "deterministic"])(
+    "announces loading and %s completion through one persistent region",
+    async (mode) => {
+      let resolve!: (value: unknown) => void;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise((done) => {
+              resolve = done;
+            }),
+        ),
+      );
+      render(<MatchCard match={match} oid="carbon" records={[evidence]} />);
+      const status = screen.getByRole("status");
+      expect(status).toBeEmptyDOMElement();
+      expect(status).toHaveAttribute("aria-live", "polite");
+      const button = screen.getByRole("button", {
+        name: "Explain this decision",
+      });
+      button.focus();
+      fireEvent.click(button);
+      expect(screen.getByRole("status")).toBe(status);
+      expect(status).toHaveTextContent("Preparing explanation for Northstar.");
+      expect(screen.getAllByRole("status")).toHaveLength(1);
+      await act(async () =>
+        resolve({
+          ok: true,
+          json: async () => ({
+            mode,
+            reason: "Provider outcome",
+            status: match.status,
+            statements: ["Funding stage: unknown."],
+            evidence_ids: [evidence.id],
+          }),
+        }),
+      );
+      expect(screen.getByRole("status")).toBe(status);
+      expect(status).toHaveTextContent(
+        "Explanation ready. Navigate to the Explanation for Northstar region",
+      );
+      expect(
+        screen.getByRole("region", { name: "Explanation for Northstar" }),
+      ).toHaveAttribute("aria-busy", "false");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    },
+  );
+  it("announces failure once via the existing alert and clears loading status", async () => {
+    let reject!: (reason: Error) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((_resolve, fail) => {
+            reject = fail;
+          }),
+      ),
+    );
+    render(<MatchCard match={match} oid="carbon" records={[evidence]} />);
+    const status = screen.getByRole("status");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Explain this decision" }),
+    );
+    expect(status).toHaveTextContent("Preparing explanation");
+    await act(async () => reject(new Error("Connection unavailable")));
+    expect(screen.getByRole("status")).toBe(status);
+    expect(status).toBeEmptyDOMElement();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Connection unavailable",
+    );
+    expect(
+      screen.getByRole("button", { name: "Explain this decision" }),
+    ).toBeEnabled();
+  });
 });

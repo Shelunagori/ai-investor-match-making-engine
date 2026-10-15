@@ -162,7 +162,10 @@ export function EvidenceReferences({
         className="evidence-dialog"
         ref={dialog}
         aria-labelledby={titleId}
-        onClose={() => setSelected(null)}
+        onClose={() => {
+          if (!dialog.current?.open) setSelected(null);
+        }}
+        onCancel={() => setSelected(null)}
         onKeyDown={(event) => {
           if (event.key !== "Tab") return;
           const stops = Array.from(
@@ -184,7 +187,10 @@ export function EvidenceReferences({
           <h2 id={titleId}>Evidence reference · {selected}</h2>
           <button
             autoFocus
-            onClick={() => dialog.current?.close()}
+            onClick={() => {
+              setSelected(null);
+              dialog.current?.close();
+            }}
             aria-label="Close evidence reference"
           >
             Close <X size={16} aria-hidden="true" />
