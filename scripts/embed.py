@@ -4,6 +4,8 @@ import json
 import os
 import httpx
 import psycopg
+from psycopg import sql
+from app.database import vector_schema
 
 MODEL = "@cf/baai/bge-base-en-v1.5"
 
@@ -14,6 +16,7 @@ def main():
         os.environ["CLOUDFLARE_API_TOKEN"],
     )
     with psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=10) as conn:
+        schema = sql.Identifier(vector_schema(conn))
         rows = conn.execute(
             "SELECT id,payload FROM aether.records WHERE embedding IS NULL ORDER BY id LIMIT 10"
         ).fetchall()
@@ -39,7 +42,9 @@ def main():
             ):
                 raise ValueError("Expected a 768-dimensional embedding")
             conn.execute(
-                "UPDATE aether.records SET embedding=%s::extensions.vector, embedding_model=%s WHERE id=%s",
+                sql.SQL(
+                    "UPDATE aether.records SET embedding=%s::{}.vector, embedding_model=%s WHERE id=%s"
+                ).format(schema),
                 (json.dumps(vector, allow_nan=False), MODEL, rid),
             )
         print(

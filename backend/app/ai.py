@@ -15,6 +15,70 @@ class Selection(BaseModel):
     evidence_ids: list[str] = Field(max_length=12)
 
 
+MAX_SELECTION_BYTES = 8192
+
+
+def parse_selection(text: str) -> Selection:
+    """Extract one bounded object; wrapper prose is discarded, never rendered."""
+    if (
+        not isinstance(text, str)
+        or len(text) > MAX_SELECTION_BYTES
+        or len(text.encode("utf-8")) > MAX_SELECTION_BYTES
+    ):
+        raise ValueError("Invalid selection size or type")
+
+    def harmless_wrapper(wrapper):
+        # Conservatively reject additional JSON containers and code fences.
+        if any(char in wrapper for char in "{}[]`"):
+            raise ValueError("Ambiguous selection wrapper")
+
+    if "```" in text:
+        parts = text.split("```")
+        if len(parts) != 3:
+            raise ValueError("Expected one code fence")
+        harmless_wrapper(parts[0])
+        harmless_wrapper(parts[2])
+        language, separator, text = parts[1].partition("\n")
+        if not separator or language.strip().lower() not in ("", "json"):
+            raise ValueError("Invalid JSON fence")
+        text = text.strip()
+        fenced = True
+    else:
+        fenced = False
+
+    start = text.find("{")
+    if start < 0:
+        raise ValueError("Missing selection object")
+    harmless_wrapper(text[:start])
+
+    def unique_object(pairs):
+        obj = {}
+        for key, value in pairs:
+            if key in obj:
+                raise ValueError("Duplicate JSON key")
+            obj[key] = value
+        return obj
+
+    def invalid_constant(value):
+        raise ValueError("Invalid JSON constant")
+
+    try:
+        obj, end = json.JSONDecoder(
+            object_pairs_hook=unique_object, parse_constant=invalid_constant
+        ).raw_decode(text, start)
+    except RecursionError as exc:
+        raise ValueError("Selection nesting too deep") from exc
+    harmless_wrapper(text[end:])
+    if fenced and (text[:start].strip() or text[end:].strip()):
+        raise ValueError("Code fence must contain only JSON")
+    selection = Selection.model_validate(obj)
+    if len(set(selection.statement_ids)) != len(selection.statement_ids):
+        raise ValueError("Duplicate statement IDs")
+    if len(set(selection.evidence_ids)) != len(selection.evidence_ids):
+        raise ValueError("Duplicate evidence IDs")
+    return selection
+
+
 class ExplanationService:
     def __init__(self):
         self.day = date.today()
@@ -83,9 +147,7 @@ class ExplanationService:
                     json=payload,
                 )
                 response.raise_for_status()
-                selection = Selection.model_validate_json(
-                    response.json()["result"]["response"]
-                )
+                selection = parse_selection(response.json()["result"]["response"])
                 if (
                     0 not in selection.statement_ids
                     or any(
@@ -99,9 +161,7 @@ class ExplanationService:
                     **fallback,
                     "mode": "cloudflare",
                     "reason": "AI-selected, deterministically rendered statements",
-                    "statements": [
-                        statements[i] for i in dict.fromkeys(selection.statement_ids)
-                    ],
+                    "statements": [statements[i] for i in selection.statement_ids],
                     "evidence_ids": selection.evidence_ids,
                 }
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
