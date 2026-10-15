@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { formatDate } from "./date";
+import { Loading } from "./Loading";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -230,6 +232,7 @@ export default function App() {
             <button
               className="mobile-menu icon-button"
               aria-label="Toggle navigation"
+              aria-expanded={mobile}
               onClick={() => setMobile(!mobile)}
             >
               <Menu size={20} />
@@ -267,10 +270,7 @@ export default function App() {
             {error ? (
               <ErrorBox message={error} retry={() => setReload((v) => v + 1)} />
             ) : !data ? (
-              <div className="loading" role="status">
-                <Activity /> Loading intelligence workspace…
-                <small>A free backend may take a moment to wake up.</small>
-              </div>
+              <Loading dashboard label="Loading intelligence workspace…" />
             ) : (
               <>
                 {page === "Overview" && (
@@ -295,12 +295,12 @@ export default function App() {
                       <span className="date-label">
                         AS OF
                         <br />
-                        <strong>{data.as_of}</strong>
+                        <strong>{formatDate(data.as_of)}</strong>
                       </span>
                     </div>
                     <section className="hero">
                       <div className="hero-copy">
-                        <span className="overline">
+                        <span className="hero-overline">
                           <span className="live-dot" /> YOUR NEXT MOVE,
                           EXPLAINED
                         </span>
@@ -746,7 +746,7 @@ function Selector({
 }) {
   return (
     <label className="selector">
-      Innovator{" "}
+      <span>Innovator</span>
       <select value={selected} onChange={(e) => setSelected(e.target.value)}>
         {data.opportunities.map((o) => (
           <option key={o.id} value={o.id}>
@@ -786,7 +786,7 @@ function OpportunityDetail({
 }) {
   const { detail, error } = useDetail(id);
   if (error) return <ErrorBox message={error} />;
-  if (!detail) return <p role="status">Loading decision trace…</p>;
+  if (!detail) return <Loading label="Loading decision trace…" />;
   const o = detail.opportunity;
   return (
     <>
@@ -817,7 +817,20 @@ function OpportunityDetail({
         <h2>Partnership decisions</h2>
         <span className="muted">Ranking index / 100 · Not a probability</span>
       </div>
-      <div className="match-grid">
+      <div className="decision-context">
+        <span>
+          Evidence completeness <strong>{detail.trust.coverage}%</strong>
+        </span>
+        <span>
+          Human review{" "}
+          <strong>{detail.trust.review_count} records need review</strong>
+        </span>
+        <small>
+          Coverage is not verification. All evidence is synthetic; human
+          diligence is required.
+        </small>
+      </div>
+      <div className="match-grid result-enter">
         {detail.matches.map((m) => (
           <MatchCard key={m.partner.id} match={m} oid={id} />
         ))}
@@ -861,11 +874,17 @@ function MatchCard({ match: m, oid }: { match: Match; oid: string }) {
   return (
     <article className="panel match-card">
       <div className="section-heading">
-        <Badge status={m.status} />
-        <span className="score">
-          {m.score}
-          <small>/100</small>
-        </span>
+        <div className="decision-label">
+          <small>Eligibility</small>
+          <Badge status={m.status} />
+        </div>
+        <div className="decision-label score-label">
+          <small>Weighted score</small>
+          <span className="score">
+            {m.score}
+            <small>/100</small>
+          </span>
+        </div>
       </div>
       <small className="muted">{m.partner.kind}</small>
       <h3>{m.partner.name}</h3>
@@ -912,9 +931,19 @@ function MatchCard({ match: m, oid }: { match: Match; oid: string }) {
         <ArrowRight size={14} />
       </button>
       {error && <ErrorBox message={error} />}{" "}
-      {explanation && (
-        <div className="explanation">
-          <Badge status={explanation.mode} />
+      {busy && <Loading compact label="Preparing grounded explanation…" />}
+      {explanation && !busy && (
+        <div className="explanation result-enter" aria-live="polite">
+          <Badge
+            status={
+              explanation.mode === "cloudflare"
+                ? "Cloudflare AI selection"
+                : "Deterministic fallback"
+            }
+          />
+          <small className="explanation-policy">
+            Preapproved statements only · No AI-generated scores or eligibility
+          </small>
           <p>{explanation.reason}</p>
           <ul>
             {explanation.statements.map((s) => (
@@ -934,7 +963,7 @@ function EvidenceView({ id }: { id: string }) {
   const { detail, error } = useDetail(id),
     [onlyReview, setOnlyReview] = useState(false);
   if (error) return <ErrorBox message={error} />;
-  if (!detail) return <p role="status">Loading source records…</p>;
+  if (!detail) return <Loading label="Loading source records…" />;
   const t = detail.trust,
     rows = t.records.filter(
       (e) => !onlyReview || e.human_review === "pending" || e.contradiction,
@@ -963,6 +992,12 @@ function EvidenceView({ id }: { id: string }) {
           values, not real verification.
         </span>
       </div>
+      {t.missing.length > 0 && (
+        <div className="missing-evidence-summary">
+          <Badge status="Missing evidence" />
+          <span>{t.missing.join(" · ")}</span>
+        </div>
+      )}
       <label className="checkbox">
         <input
           type="checkbox"
@@ -971,7 +1006,7 @@ function EvidenceView({ id }: { id: string }) {
         />{" "}
         Show only records needing review
       </label>
-      <div className="evidence-grid">
+      <div className="evidence-grid result-enter">
         {rows.map((e) => (
           <article className="panel evidence-record" key={e.id}>
             <div className="section-heading">
@@ -979,8 +1014,27 @@ function EvidenceView({ id }: { id: string }) {
                 {e.id} · {e.factor}
               </span>
               <Badge
-                status={e.contradiction ? "Conflicting evidence" : e.status}
+                status={
+                  e.contradiction
+                    ? "Conflicting evidence"
+                    : e.status === "unverified"
+                      ? "Unverified"
+                      : e.status
+                }
               />
+            </div>
+            <div className="evidence-flags">
+              {e.contradiction && e.status !== "unverified" && (
+                <Badge status={e.status} />
+              )}
+              {!e.verified &&
+                (e.contradiction || e.status !== "unverified") && (
+                  <Badge status="Unverified" />
+                )}
+              {!e.fresh && <Badge status="Stale" />}
+              {e.human_review === "pending" && (
+                <Badge status="Human review pending" />
+              )}
             </div>
             <h3>{e.value}</h3>
             <p>{e.source}</p>
@@ -988,9 +1042,9 @@ function EvidenceView({ id }: { id: string }) {
               <dt>Source type</dt>
               <dd>{e.source_type}</dd>
               <dt>Observed</dt>
-              <dd>{e.observed}</dd>
+              <dd>{formatDate(e.observed)}</dd>
               <dt>Last verified</dt>
-              <dd>{e.verified ?? "Unknown"}</dd>
+              <dd>{formatDate(e.verified)}</dd>
               <dt>Freshness</dt>
               <dd>
                 {e.fresh ? "Fresh" : "Stale"} · {e.age_days} days
@@ -1114,7 +1168,13 @@ function ScenarioLab({ opportunity: o }: { opportunity: Opportunity }) {
         <p className="eyebrow">BASELINE → HYPOTHETICAL</p>
         <h2>Decision impact</h2>
         {error && <ErrorBox message={error} />}{" "}
-        {!result ? (
+        {busy &&
+          (result ? (
+            <p role="status">Recalculating scenario impact…</p>
+          ) : (
+            <Loading compact label="Recalculating scenario impact…" />
+          ))}
+        {!result && !busy ? (
           <div className="scenario-empty">
             <FlaskConical size={44} />
             <h3>Every assumption has consequences.</h3>
@@ -1123,8 +1183,8 @@ function ScenarioLab({ opportunity: o }: { opportunity: Opportunity }) {
               open up or fall away.
             </p>
           </div>
-        ) : (
-          <>
+        ) : result ? (
+          <div className="result-enter" key={JSON.stringify(result)}>
             <p className="notice">
               {dirty
                 ? "Inputs changed. Run again to update these results."
@@ -1149,8 +1209,8 @@ function ScenarioLab({ opportunity: o }: { opportunity: Opportunity }) {
                 </p>
               </div>
             ))}
-          </>
-        )}
+          </div>
+        ) : null}
         <small className="muted">
           The buyer constraint applies to all industrial partners in this
           simulation. Existing evidence is not re-verified by a hypothetical
@@ -1197,7 +1257,7 @@ function EvaluationStudio() {
       {error ? (
         <ErrorBox message={error} />
       ) : !data ? (
-        <p role="status">Running benchmark…</p>
+        <Loading label="Running benchmark…" />
       ) : (
         <>
           <div className="metrics eval-metrics">
@@ -1227,7 +1287,7 @@ function EvaluationStudio() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">
-                  {data.version} · AS OF {data.as_of}
+                  {data.version} · AS OF {formatDate(data.as_of)}
                 </p>
                 <h2>Regression results</h2>
               </div>
