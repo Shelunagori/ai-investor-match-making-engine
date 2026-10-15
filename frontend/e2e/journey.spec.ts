@@ -1,4 +1,15 @@
 import { test, expect, type Page } from "@playwright/test";
+// Contrast audits inspect the settled UI, not transient fade opacity.
+// Await browser animation completion instead of a fixed delay or disabling motion.
+async function settleMotion(page: Page) {
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .map((animation) => animation.finished.catch(() => {})),
+    ),
+  );
+}
 async function navigate(page: Page, name: string) {
   if (await page.getByRole("button", { name: "Toggle navigation" }).isVisible())
     await page.getByRole("button", { name: "Toggle navigation" }).click();
@@ -112,6 +123,7 @@ test("each screen fits the viewport and has no serious accessibility issues", as
         "opacity",
         "1",
       );
+    await settleMotion(page);
     const results = await new AxeBuilder({ page }).analyze();
     expect(
       results.violations
@@ -415,6 +427,7 @@ test("citations open auditable conflicts with keyboard focus restored", async ({
     await dialog.evaluate((el) => el.contains(document.activeElement)),
   ).toBeTruthy();
   const { default: AxeBuilder } = await import("@axe-core/playwright");
+  await settleMotion(page);
   const results = await new AxeBuilder({ page }).analyze();
   expect(
     results.violations.filter((v) =>
@@ -538,6 +551,7 @@ for (const viewport of [
     await expect(close).toBeFocused();
     await expect(close).toBeInViewport();
     const { default: AxeBuilder } = await import("@axe-core/playwright");
+    await settleMotion(page);
     const result = await new AxeBuilder({ page }).analyze();
     expect(
       result.violations.filter((v) =>
@@ -613,6 +627,7 @@ test("explanation status persists through loading, completion and failure", asyn
   await expect(status).toHaveAttribute("data-persistent-test", "original");
   await expect(card.getByRole("alert")).toHaveCount(1);
   const { default: AxeBuilder } = await import("@axe-core/playwright");
+  await settleMotion(page);
   const result = await new AxeBuilder({ page }).analyze();
   expect(
     result.violations.filter((v) =>
@@ -620,3 +635,79 @@ test("explanation status persists through loading, completion and failure", asyn
     ),
   ).toEqual([]);
 });
+
+for (const reducedMotion of ["no-preference", "reduce"] as const) {
+  test(`loaded content motion respects ${reducedMotion}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto("/");
+    const metric = page.locator(".metrics .metric").first();
+    await expect(metric).toBeVisible();
+    await expect(metric).toHaveCSS(
+      "animation-name",
+      reducedMotion === "reduce" ? "none" : "result-enter",
+    );
+    if (reducedMotion === "no-preference") {
+      await expect(page.locator(".metrics .metric").nth(3)).toHaveCSS(
+        "animation-delay",
+        "0.12s",
+      );
+    }
+    await page
+      .getByRole("button", { name: "Explore the opportunity pipeline" })
+      .click();
+    await page
+      .getByRole("button", { name: "Explain this decision" })
+      .first()
+      .click();
+    if (test.info().project.name === "desktop") {
+      const card = page.locator(".match-card").first();
+      await card.hover();
+      await expect(card).toHaveCSS(
+        "translate",
+        reducedMotion === "reduce" ? "none" : "0px -3px",
+      );
+      await page.mouse.move(0, 0);
+    }
+    const section = page.locator(".explanation > section").first();
+    await expect(section).toBeVisible();
+    await expect(section).toHaveCSS(
+      "animation-name",
+      reducedMotion === "reduce" ? "none" : "result-enter",
+    );
+    const citation = page.locator(".explanation .citation-chip").first();
+    await citation.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveCSS(
+      "animation-name",
+      reducedMotion === "reduce" ? "none" : "dialog-enter",
+    );
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(citation).toBeFocused();
+    await navigate(page, "Scenario lab");
+    await page.getByLabel("Capital requirement (USD millions)").fill("25");
+    await page.getByRole("button", { name: "Run simulation" }).click();
+    const changed = page
+      .locator(".scenario-change")
+      .filter({ hasText: "Northstar Climate" });
+    await expect(changed).toHaveClass(/outcome-changed/);
+    await expect(changed).toContainText("Eligibility changed from baseline");
+    await expect(changed).toContainText("+0 score");
+    await expect(changed).toHaveCSS(
+      "animation-name",
+      reducedMotion === "reduce" ? "none" : "result-enter",
+    );
+    await changed.evaluate((el) =>
+      el.setAttribute("data-previous-result", "true"),
+    );
+    await page.getByRole("button", { name: "Run simulation" }).click();
+    await expect(changed).not.toHaveAttribute("data-previous-result", "true");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  });
+}

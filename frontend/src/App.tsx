@@ -26,7 +26,7 @@ import {
   Play,
   Menu,
 } from "lucide-react";
-import { motion, MotionConfig } from "motion/react";
+import { MotionConfig } from "motion/react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -273,11 +273,7 @@ export default function App() {
             ) : (
               <>
                 {page === "Overview" && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.2 }}
-                  >
+                  <div className="dashboard-enter">
                     <div className="page-heading">
                       <div>
                         <p className="eyebrow">
@@ -376,7 +372,9 @@ export default function App() {
                             {m.label}
                             <m.icon size={17} />
                           </div>
-                          <strong>{m.value}</strong>
+                          <strong key={m.value} className="metric-value">
+                            {m.value}
+                          </strong>
                           <small>{m.note}</small>
                         </div>
                       ))}
@@ -564,7 +562,7 @@ export default function App() {
                         </ResponsiveContainer>
                       </div>
                     </section>
-                  </motion.div>
+                  </div>
                 )}
                 {page === "Opportunities" && (
                   <>
@@ -1066,7 +1064,8 @@ function ScenarioLab({ opportunity: o }: { opportunity: Opportunity }) {
     [result, setResult] = useState<ScenarioResult | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
-    [dirty, setDirty] = useState(false);
+    [dirty, setDirty] = useState(false),
+    [resultVersion, setResultVersion] = useState(0);
   async function run() {
     setBusy(true);
     setError("");
@@ -1080,6 +1079,7 @@ function ScenarioLab({ opportunity: o }: { opportunity: Opportunity }) {
           buyer_max_integration: constraint,
         }),
       );
+      setResultVersion((version) => version + 1);
       setDirty(false);
     } catch (e) {
       setError((e as Error).message);
@@ -1180,15 +1180,23 @@ function ScenarioLab({ opportunity: o }: { opportunity: Opportunity }) {
             </p>
           </div>
         ) : result ? (
-          <div className="result-enter" key={JSON.stringify(result)}>
+          <div className="scenario-reveal" key={resultVersion}>
             <p className="notice">
               {dirty
                 ? "Inputs changed. Run again to update these results."
                 : result.notice}
             </p>
             {result.changes.map((c) => (
-              <div className="scenario-change" key={c.partner}>
+              <div
+                className={`scenario-change${c.before !== c.after ? " outcome-changed" : ""}`}
+                key={c.partner}
+              >
                 <h3>{c.partner}</h3>
+                <small className="outcome-label">
+                  {c.before !== c.after
+                    ? "Eligibility changed from baseline"
+                    : "Eligibility unchanged from baseline"}
+                </small>
                 <div>
                   <Badge status={c.before} />
                   <ArrowRight size={16} />
