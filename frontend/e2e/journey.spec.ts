@@ -375,3 +375,113 @@ test("detail skeleton resolves and explanation errors remain actionable", async 
   ).toBeEnabled();
   await expect(page.locator(".explanation")).toHaveCount(0);
 });
+
+test("citations open auditable conflicts with keyboard focus restored", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Explore the opportunity pipeline" })
+    .click();
+  await page
+    .getByRole("button", { name: "Explain this decision" })
+    .first()
+    .click();
+  const citation = page
+    .locator(".explanation")
+    .getByRole("button", { name: "volt-e0 technology", exact: true });
+  await citation.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", {
+    name: "Evidence reference · volt-e0",
+  });
+  await expect(dialog).toBeVisible();
+  await expect(
+    dialog.getByRole("article", { name: "Evidence volt-e0", exact: true }),
+  ).toContainText("Synthetic diligence record");
+  await expect(
+    dialog.getByRole("article", {
+      name: "Evidence volt-conflict",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(dialog).toContainText("AI has not resolved it");
+  await expect(dialog).toContainText("not independent verification");
+  await expect(
+    dialog.getByRole("button", { name: "Close evidence reference" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  expect(
+    await dialog.evaluate((el) => el.contains(document.activeElement)),
+  ).toBeTruthy();
+  const { default: AxeBuilder } = await import("@axe-core/playwright");
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(
+    results.violations.filter((v) =>
+      ["serious", "critical"].includes(v.impact ?? ""),
+    ),
+  ).toEqual([]);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+  await page.screenshot({
+    path: `test-results/citation-conflict-${test.info().project.name}.png`,
+    fullPage: false,
+  });
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(citation).toBeFocused();
+});
+
+test("missing citation is explicit and explanation cannot override a decision", async ({
+  page,
+}) => {
+  await page.route("**/api/opportunities/*/explain/*", (route) =>
+    route.fulfill({
+      json: {
+        mode: "cloudflare",
+        reason: "AI-selected, deterministically rendered statements",
+        status: "eligible",
+        statements: [
+          "Funding stage: unknown.",
+          "Technology readiness: unknown.",
+          "Invented guarantee",
+        ],
+        evidence_ids: ["carbon-e0", "missing-reference"],
+      },
+    }),
+  );
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Inspect CarbonArc", exact: true })
+    .click();
+  const card = page.locator(".match-card").filter({
+    has: page.getByRole("heading", {
+      name: "Northstar Climate",
+      exact: true,
+    }),
+  });
+  await card.getByRole("button", { name: "Explain this decision" }).click();
+  const explanation = card.locator(".explanation");
+  await expect(
+    explanation.getByText("rejected", { exact: true }),
+  ).toBeVisible();
+  await expect(explanation).toContainText("TRL is not recorded");
+  await expect(explanation).toContainText("stage is recorded as Unknown");
+  await expect(explanation).not.toContainText("Invented guarantee");
+  await explanation.getByRole("button", { name: /missing-reference/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Evidence reference unavailable");
+  await expect(dialog.getByRole("article")).toHaveCount(0);
+  await dialog
+    .getByRole("button", { name: "Close evidence reference" })
+    .click();
+  await explanation.getByRole("button", { name: /carbon-e0/ }).click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("article", { name: "Evidence carbon-e0" }),
+  ).toBeVisible();
+});
